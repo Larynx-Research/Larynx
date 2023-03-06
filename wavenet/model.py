@@ -63,6 +63,14 @@ class res_stack(nn.Module):
             skip_out.append(skip_res)
         return res_out, torch.stack(skip_out)
 
+
+class wavenet(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward():
+        pass
+
 if __name__ == "__main__":
     x = torch.rand(100).reshape(1,-1,)
     in_channel = 1
