@@ -11,19 +11,30 @@ class atrous(nn.Module):
         self.conv1 = nn.Conv1d(in_channel, out_channel, kernel_size, dilation=dilation, bias=False, padding="same")
 
     def forward(self, x):
-        print(x.shape)
-        print(self.conv1(x).shape)
         return self.conv1(x)
 
 ## Non Diluted Convolutions just for experimental purposes !
-class non_diluted_conv:
+class non_diluted_conv(nn.Module):
     def __init__(self, in_channel, out_channel, kernel_size, padding=1):
         super().__init__()
-        self.conv1 = nn.Conv1d(in_channel, out_channel, kernel_size, bias=False, padding="same")
+        self.conv = nn.Conv1d(in_channel, out_channel, kernel_size, bias=False, padding="same")
 
     def forward(self, x):
-        return self.conv1(x)
+        return self.conv(x)
 
+## normal residual blocks as disc in the paper !
+class residual_block(nn.Module):
+    def __init__(self, in_channel, out_channel, skip_conn, kernel_size, dilation):
+        super().__init__()
+        self.conv1 = non_diluted_conv(in_channel, out_channel, kernel_size)
+        self.lazy_conv = atrous(in_channel, out_channel, kernel_size, dilation)
+
+    def forward(self, x):
+        Y = self.lazy_conv(x)
+        Y_tan,Y_sig = torch.tanh(Y), torch.sigmoid(Y)
+        Y = Y_tan * Y_sig
+        out1 = self.conv1(Y)
+        return out1, out2
 
 if __name__ == "__main__":
     x = torch.rand(100).reshape(1,-1,)
@@ -31,9 +42,7 @@ if __name__ == "__main__":
     out_channel = 1
     kernel_size = 5
     dilation=3
-    a = casual_dilated_conv(in_channel, out_channel, kernel_size, dilation)
+    skip = 1
+    a = residual_block(in_channel, out_channel, skip, kernel_size, dilation)
     a.forward(x)
      
-
-
-
