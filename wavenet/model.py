@@ -1,7 +1,6 @@
 ## WAVENET !
 import torch
 import torch.nn as nn
-import numpy as np
 
 ## Allows one to have larger receptive field with same computation and memory costs while also preserving resolution unless Polling or Strided Convolutions
 ## https://github.com/vdumoulin/conv_arithmetic/blob/master/README.md
@@ -9,10 +8,10 @@ class atrous(nn.Module):
     def __init__(self, in_channel, put_channel, kernel_size, dilation, padding=1):
         super().__init__()
         ## padds for same shape as the input
-        self.conv1 = nn.Conv1d(in_channel, out_channel, kernel_size, dilation=dilation, bias=False, padding="same")
+        self.lazy_conv = nn.Conv1d(in_channel, out_channel, kernel_size, dilation=dilation, bias=False, padding="same")
 
     def forward(self, x):
-        return self.conv1(x)
+        return self.lazy_conv(x)
 
 ## Non Diluted Convolutions just for experimental purposes !
 class non_diluted_conv(nn.Module):
@@ -29,7 +28,7 @@ class residual_block(nn.Module):
         super().__init__()
         self.conv1 = non_diluted_conv(in_channel, out_channel, kernel_size)
         self.lazy_conv = atrous(in_channel, out_channel, kernel_size, dilation)
-        self.conv_sk = nn.Conv1d(in_channel, skip_channels, kernel_size)
+        self.skip_conv = nn.Conv1d(in_channel, skip_channels, kernel_size)
 
     def forward(self, x):
         Y = self.lazy_conv(x)
@@ -37,7 +36,7 @@ class residual_block(nn.Module):
         Y_tan,Y_sig = torch.tanh(Y), torch.sigmoid(Y)
         Y = Y_tan * Y_sig
         res_out = self.conv1(Y) + x[-Y.size(1):]
-        skip_out = self.conv_sk(Y)
+        skip_out = self.skip_conv(Y)
         print(res_out.shape, skip_out.shape)
         return res_out, skip_out
 
@@ -64,20 +63,58 @@ class res_stack(nn.Module):
         return res_out, torch.stack(skip_out)
 
 
-class wavenet(nn.Module):
-    def __init__(self):
+## A simple dense net to compute the rest of the network !
+class dense_net(nn.Module):
+    def __init__(self, channels):
         super().__init__()
+        self.channels = channels
+        self.conv = non_diluted_conv(self.channels, self.channels, kernel_size = 1)
 
-    def forward():
-        pass
+    def forward(self, skips):
+        x = torch.mean(skips, dim=0)
 
+        for i in range(2):
+            relu = nn.ReLU()
+            x = relu(x)
+            x = self.conv(x)
+            softmax = nn.Softmax(dim=1)
+        return softmax(x)
+
+
+class wavenet(nn.Module):
+
+    #            |----------------------------------------|     *residual*
+    #            |                                        |
+    #            |    |-- conv -- tanh --|                |
+    # -> dilate -|----|                  * ----|-- 1x1 -- + -->	*input*
+    #                 |-- conv -- sigm --|     |
+    #                                         1x1
+    #                                          |
+    # ---------------------------------------> + ------------->	*skip*
+
+    def __init__(self, in_channel, out_channel, kernel_size, stack_size):
+        super().__init__()
+        self.stack_size = stack_size
+        self.kernel_size = kernel_size
+        self.lazy_conv = atrous(in_channel, out_channel, kernel_size, dilation=1)
+        self.res_block_stack = res_stack(self.stack_size, in_channel, out_channel, kernel_size)
+        self.dense = dense_net(out_channel)
+
+    def forward(self, x):
+        x = self.lazy_conv(x)
+        _, skips = self.res_block_stack(x)
+        x = self.dense(skips)
+        print(x)
+        return x
+
+## A very simple Wavenet, might not be according to the paper 
 if __name__ == "__main__":
-    x = torch.rand(100).reshape(1,-1,)
-    in_channel = 1
-    out_channel = 1
+    x = torch.rand(3,100).reshape(1,3,-1,)
+    in_channel = 3
+    out_channel = 3
     kernel_size = 5
     stack_size=3
     skip = 1
-    a = res_stack(stack_size,out_channel, skip, kernel_size)
+    a = wavenet(in_channel,out_channel, kernel_size, stack_size)
     a.forward(x)
      
