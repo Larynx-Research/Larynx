@@ -107,6 +107,15 @@ class wavenet(nn.Module):
         print(x)
         return x
 
+def _wavenet(data=None):
+    """FlowNetS model architecture from the
+    Learning Optical Flow with Convolutional Networks" paper (https://arxiv.org/abs/1504.06852)
+    """
+    model = wavenet()
+    if data is not None:
+        model.load_state_dict(data['state_dict'])
+    return model
+
 ## A very simple Wavenet, might not be according to the paper 
 if __name__ == "__main__":
     x = torch.rand(3,100).reshape(1,3,-1,)
@@ -117,4 +126,3 @@ if __name__ == "__main__":
     skip = 1
     a = wavenet(in_channel,out_channel, kernel_size, stack_size)
     a.forward(x)
-     
