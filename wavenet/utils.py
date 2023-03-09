@@ -40,7 +40,8 @@ class list_dataset(Dataset):
         wavs = self.buffer[index][0]
         speech = self.buffer[index][1]
 
-        return wavs,speech
+        waveform = lazy_load_dataset(wavs)
+        return waveform ,speech
 
     def __len__(self):
         return len(self.buffer)
@@ -74,13 +75,10 @@ def load_dataset(root, transforms=None, split=0):
     return train, validate
 
 def lazy_load_dataset(wav_file):
-    waves = []
-    for i in range(len(wav_file)):
-        if wav_file[i] not in global_buffer:
-            waveform, sample_rate = torchaudio.load(wav_file[i])
-            global_buffer[wav_file[i]] = waveform
-        waves.append(global_buffer[wav_file[i]])
-    return waves
+    if wav_file not in global_buffer:
+        waveform, sample_rate = torchaudio.load(wav_file)
+        global_buffer[wav_file] = waveform
+    return global_buffer[wav_file]
 
 if __name__ == "__main__":
 

@@ -80,9 +80,10 @@ parser.add_argument('--milestones', default=[100,150,200], metavar='N', nargs='*
 
 best_cross_entropy = -1
 n_iters = 0
-device = torch.device("cuda" id torch.cuda.is_available() else "cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def main():
+    global args, best_cross_entropy
     args = parser.parse_args()
     main_epoch = 0
     timestamp = datetime.datetime.now().strftime("%m-%d-%H-%M")
@@ -109,16 +110,16 @@ def main():
 ## --------------------- loading and concatinating the data --------------------- ##
 
     print(f"=> fetching image pairs from {args.data}")   
-    train_set, validation_set = load_dataset(args.data, transforms=None, arg.split_value=80)
+    train_set, validation_set = load_dataset(args.data, transforms=None, split = args.split_value)
 
     print(f"=> {len(validation_set) + len(train_set)} samples found, {len(train_set)} train samples and {len(validation_set)} test samples")
 
-    train_loader = DataLoader(train_set, args.batch_size=8, shuffle=True)
-    validate_loader = DataLoader(validation_set, args.batch_size=8, shuffle=True)
+    train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True)
+    validate_loader = DataLoader(validation_set, batch_size=args.batch_size, shuffle=True)
 
 ## --------------------- WAVENET from model.py --------------------- ##
 
-    model = wavenet()
+    model = load_wavenet()
 
     if args.pretrained is not None:
         with open(args.pretrained, 'rb') as pickle_file:
@@ -138,14 +139,14 @@ def main():
         return 
 
     print(f'=> settting {args.solver} optimizer')
-    param_groups = [{'params': model.bias_parameters(), 'weight_decay': args.bias_decay},
-            {'params': model.weight_parameters(), 'weight_decay': args.weight_decay}]
+    param_groups = [{'params': model.parameters(), 'weight_decay': args.bias_decay},
+            {'params': model.parameters(), 'weight_decay': args.weight_decay}]
 
     if device.type == 'cuda':
         model = torch.nn.DataParallel(model).cuda()
         cudnn.benchmark = True
     
-    optimizer = torch.optim.Adam(param_groups, args.lr, betas=(args.momentum, args.beta)) if args.solver == 'adam' else torch.optim.SGD(param_groups, args.lr, momentum=args.momentum)
+    optimizer = torch.optim.Adam(model.parameters(), args.lr, betas=(args.momentum, args.beta)) if args.solver == 'adam' else torch.optim.SGD(param_groups, args.lr, momentum=args.momentum)
     
     if args.evaluate:
         best_cross_entropy = validation(validate_loader, model, 0, output_writers, loss_function)
@@ -155,7 +156,7 @@ def main():
 
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=args.milestones, gamma=.5)
 
-    loss_function = nn.cross_entropy()
+    loss_function = nn.CrossEntropyLoss()
 
     ## --------------------- Training Loop --------------------- ##
     
@@ -205,15 +206,14 @@ def train(train_loader, model, optimizer, epoch, loss_function):
 
     for i, (wave, speech) in enumerate(train_loader):
         start_time = time.time()
-        wave = lazy_load_dataset(wave)
         wave = wave.to(device)
         speech = speech.to(device)
 
-        pred_speech = model(wave)
+        pred_wave = model(speech)
 
-        loss = loss_function(pred_speech, speech)
+        loss = loss_function(pred_wave, wave)
         
-        losses.append((float(loss))
+        losses.append(float(loss))
 
         optimizer.zero_grad()
         loss.backward()
@@ -233,8 +233,9 @@ def train(train_loader, model, optimizer, epoch, loss_function):
        # n_iters += 1
        # if i >= epoch_size:
        #     break
+    display=1
     
-    return sum(losses)/len(losses), loss.item() , display=1
+    return sum(losses)/len(losses), loss.item() , display
 
 def validation(val_loader, model, epoch, loss_function):
     global args
@@ -244,12 +245,12 @@ def validation(val_loader, model, epoch, loss_function):
     end = time.time()
     for i, (wave, speech) in enumerate(val_loader):
         wave = lazy_load_dataset(wave)
-        wave = wave.to(device)
+        wave = torch.tensor(wave).to(device)
         speech = speech.to(device)
 
-        pred_speech = model(wave)
+        pred_wave = model(speech)
 
-        loss = loss_function(pred_speech, speech)
+        loss = loss_function(pred_wave, wave)
 
         end = time.time()
 
@@ -266,14 +267,10 @@ def validation(val_loader, model, epoch, loss_function):
        #     print(display_val)
        #     print(f"=> Values: Actual yaw: {np.argmax(yaw)} ; Pred yaw: {np.argmax(pred_yaw)} --- Actual pitch : {np.argmax(pitch)} ; Pred pitch : {np.argmax(pred_pitch)}")
 
-    return loss.item(), display_val=1
+    display_val=1
+    return loss.item(), display_val
         
 if __name__ == "__main__":
     torch.cuda.empty_cache()
     main()
 
-    for i, (some,another) in enumerate(train_loader):
-        wave= lazy_load_dataset(some)
-        print(wave[1].shape)
-        break
-main()

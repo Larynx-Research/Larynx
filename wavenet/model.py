@@ -5,7 +5,7 @@ import torch.nn as nn
 ## Allows one to have larger receptive field with same computation and memory costs while also preserving resolution unless Polling or Strided Convolutions
 ## https://github.com/vdumoulin/conv_arithmetic/blob/master/README.md
 class atrous(nn.Module):
-    def __init__(self, in_channel, put_channel, kernel_size, dilation, padding=1):
+    def __init__(self, in_channel, out_channel, kernel_size, dilation, padding=1):
         super().__init__()
         ## padds for same shape as the input
         self.lazy_conv = nn.Conv1d(in_channel, out_channel, kernel_size, dilation=dilation, bias=False, padding="same")
@@ -107,11 +107,15 @@ class wavenet(nn.Module):
         print(x)
         return x
 
-def _wavenet(data=None):
+def load_wavenet(data=None):
     """FlowNetS model architecture from the
     Learning Optical Flow with Convolutional Networks" paper (https://arxiv.org/abs/1504.06852)
     """
-    model = wavenet()
+    in_channel = 1
+    out_channel = 1
+    kernel_size = 5
+    stack_size = 16
+    model = wavenet(in_channel, out_channel, kernel_size, stack_size)
     if data is not None:
         model.load_state_dict(data['state_dict'])
     return model
