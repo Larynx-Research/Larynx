@@ -29,7 +29,7 @@ def model_callable():
 parser = argparse.ArgumentParser(description='PyTorch FlowNet Training on several datasets',
                                  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
-parser.add_argument('--data', default="../../data/calib_image_data", type=str,
+parser.add_argument('--data', default="E:/data/LJSpeech-1.1", type=str,
                     help='path to dataset')
 
 group = parser.add_mutually_exclusive_group()
@@ -76,17 +76,215 @@ parser.add_argument('--div-flow', default=20,
                     help='value by which flow will be divided. Original value is 20 but 1 with batchNorm gives good results')
 parser.add_argument('--milestones', default=[100,150,200], metavar='N', nargs='*', help='epochs at which learning rate is divided by 2')
 
+## ----------------------- global variables ----------------------- ##
+
+best_cross_entropy = -1
+n_iters = 0
+device = torch.device("cuda" id torch.cuda.is_available() else "cpu")
 
 def main():
+    args = parser.parse_args()
+    main_epoch = 0
+    timestamp = datetime.datetime.now().strftime("%m-%d-%H-%M")
+    save_path = f'{args.arch}_{args.solver}_{args.epochs}_bs{args.batch_size}_time{timestamp}_lr{args.lr}'
+        
+    save_path = os.path.join("./pretrained/", save_path)
+    print(f"=> will save everything to {save_path}")
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
 
-    data = "E:/data/LJSpeech-1.1"
     split_value = 70
     batch_size = 16
-    train_set = load_dataset(data)
+
+## --------------------- transforming the data (BUT HOW) --------------------- ##
+
+    input_transform = transforms.Compose([
+            transforms.Resize((100)),
+            #RandomTranslate(10),
+            transforms.ColorJitter(brightness=.3, contrast=0, saturation=0, hue=0),
+            transforms.GaussianBlur(3, sigma=(0.1, 2.0)),
+            transforms.RandomGrayscale(p=0.1),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0,0,0], std=[255,255,255]),
+            transforms.Normalize(mean=[.45,.432,.411], std=[1,1,1]),
+        ])
+
+## --------------------- loading and concatinating the data --------------------- ##
+
+    print(f"=> fetching image pairs from {args.data}")   
+    train_set, validation_set = load_dataset(args.data, transforms=None, split=80)
+
+    print(f"=> {len(validation_set) + len(train_set)} samples found, {len(train_set)} train samples and {len(validation_set)} test samples")
 
     train_loader = DataLoader(train_set, batch_size=8, shuffle=True)
+    validate_loader = DataLoader(validation_set, batch_size=8, shuffle=True)
+
+## --------------------- MODEL from FlowNetCorr.py --------------------- ##
+
+    model = wavenet()
+
+    if args.pretrained is not None:
+        with open(args.pretrained, 'rb') as pickle_file:
+            network_data = pickle.load(pickle_file)
+
+        model.load_state_dict(network_data["state_dict"])
+        main_epoch = network_data['epoch']
+        print(f"=> creating model {args.arch}")
+    else:
+        network_data = None
+        print(f"=> No pretrained weights ")
+
+## --------------------- Checking and selecting a optimizer [SGD, ADAM] --------------------- ##
+
+    if args.solver not in ['adam', 'sgd']:
+        print("=> enter a supported optimizer")
+        return 
+
+    print(f'=> settting {args.solver} optimizer')
+    param_groups = [{'params': model.bias_parameters(), 'weight_decay': args.bias_decay},
+            {'params': model.weight_parameters(), 'weight_decay': args.weight_decay}]
+
+    if device.type == 'cuda':
+        model = torch.nn.DataParallel(model).cuda()
+        cudnn.benchmark = True
+    
+    optimizer = torch.optim.Adam(param_groups, args.lr, betas=(args.momentum, args.beta)) if args.solver == 'adam' else torch.optim.SGD(param_groups, args.lr, momentum=args.momentum)
+    
+    if args.evaluate:
+        best_cross_entropy = validation(val_loader, model, 0, output_writers, loss_function)
+        return
+
+## --------------------- Scheduler and Loss Function --------------------- ##
+
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=args.milestones, gamma=.5)
+
+    loss_function = nn.cross_entropy()
+
+    ## --------------------- Training Loop --------------------- ##
+    
+    print("=> training go look tensorboard for more stuff")
+    for epoch in (r := trange(args.start_epoch, args.epochs)):
+
+        avg_loss_MSE, train_loss_MSE, display = train(train_loader, model,
+                optimizer, epoch+main_epoch, train_writer, yaw_loss, pitch_loss)
+        
+        scheduler.step()
+        train_writer.add_scalar('train mean MSE', avg_loss_MSE, epoch)
+
+## --------------------- Validation Step --------------------- ##
+        
+        with torch.no_grad():
+            MSE_loss_val, display_val = validation(val_loader, model, epoch, output_writers, yaw_loss, pitch_loss)
+        test_writer.add_scalar('validation mean MSE', MSE_loss_val, epoch)
+
+        if best_MSE < 0:
+            best_MSE = MSE_loss_val
+
+        is_best = MSE_loss_val < best_MSE
+        best_MSE = min(MSE_loss_val, best_MSE)
+
+## --------------------- Saving on every epoch --------------------- ##
+
+        save_checkpoint({
+            'epoch': epoch + 1,
+            'arch': args.arch,
+            'state_dict': model.module.state_dict(),
+            'best_EPE': best_MSE,
+            'div_flow': args.div_flow
+        }, is_best, save_path)
+        
+        r.set_description(f"train_stuff: {display}, epoch: {epoch+1}, val_Stuff: {display_val}")
+
+## --------------------- TRAIN function for the training loop --------------------- ##
+
+def train(train_loader, model, optimizer, epoch, train_writer, yaw_loss, pitch_loss):
+    global n_iters, args
+
+    epoch_size = len(train_loade+main_epochr) if args.epoch_size == 0 else min(len(train_loader), args.epoch_size)
+
+    losses = []
+    model.train()
+    end = time.time()
+
+## --------------------- Training --------------------- ##
+
+    for i, (input, yaw, pitch) in enumerate(train_loader):
+        start_time = time.time()
+        yaw = yaw.to(device)
+        pitch = pitch.to(device)
+        inputs = torch.cat(input,1).to(device)
+
+        pred_yaw, pred_pitch = model(inputs)
+
+        yaw_MSE = yaw_loss(pred_yaw, yaw)
+        
+        pitch_MSE = pitch_loss(pred_pitch, pitch)
+        loss = (yaw_MSE + pitch_MSE)*.5
+
+        losses.append((float(yaw_MSE) + float(pitch_MSE)) *.5)
+        train_writer.add_scalar('train_loss', (float(yaw_MSE.item()+pitch_MSE.item())*.5))
+
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        end = time.time()
+        batch_time = end - start_time
+#        print(yaw, pitch)
+#        print(pred_yaw, pred_pitch)
+        
+## --------------------- Stuff to display at output --------------------- ##
+
+        if i % args.print_freq == 0:
+            display = (' Epoch: [{0}][{1}/{2}] ; Time {3} ; Avg MSELoss {4} ; yaw_MSE {5} ; pitch_MSE {6}').format(epoch, 
+                    i, epoch_size, batch_time, sum(losses)/len(losses), yaw_MSE.item(), pitch_MSE.item())
+            print(display)
+        n_iters += 1
+        if i >= epoch_size:
+            break
+    
+    return sum(losses)/len(losses), loss.item() , display
+
+def validation(val_loader, model, epoch, output_writers, yaw_loss, pitch_loss):
+    global args
+
+    model.eval()
+    
+    end = time.time()
+    for i, (input, yaw, pitch) in enumerate(val_loader):
+        yaw = yaw.to(device)
+        pitch = pitch.to(device)
+        input = torch.cat(input,1).to(device)
+
+        pred_yaw, pred_pitch = model(input)
+
+        yaw_MSE = yaw_loss(pred_yaw, yaw)*.5
+        pitch_MSE = pitch_loss(pred_pitch, pitch)*.5
+        loss = yaw_MSE + pitch_MSE
+
+        end = time.time()
+
+       # if i < len(output_writers):
+       #     if epoch == 0:
+       #         mean_values = torch.tensor([0.45,0.432,0.411], dtype=input.dtype).view(3,1,1)
+       #         output_writers[i].add_image('GroundTruth', flow2rgb(args.div_flow * target[0], max_value=10), 0)
+       #         output_writers[i].add_image('Inputs', (input[0,:3].cpu() + mean_values).clamp(0,1), 0)
+       #         output_writers[i].add_image('Inputs', (input[0,3:].cpu() + mean_values).clamp(0,1), 1)
+       #     output_writers[i].add_image('FlowNet Outputs', flow2rgb(args.div_flow * output[0], max_value=10), epoch)
+
+        if i % args.print_freq == 0:
+            display_val = ('Test: [{0}/{1}] ; Loss {2}').format(i, len(val_loader), loss.item())
+            print(display_val)
+            print(f"=> Values: Actual yaw: {np.argmax(yaw)} ; Pred yaw: {np.argmax(pred_yaw)} --- Actual pitch : {np.argmax(pitch)} ; Pred pitch : {np.argmax(pred_pitch)}")
+
+    return loss.item(), display_val
+        
+if __name__ == "__main__":
+    torch.cuda.empty_cache()
+    main()
 
     for i, (some,another) in enumerate(train_loader):
-        wave = lazy_load_dataset(some, batch_size)
+        wave= lazy_load_dataset(some)
+        print(wave[1].shape)
         break
 main()

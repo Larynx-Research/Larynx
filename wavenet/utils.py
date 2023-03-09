@@ -62,14 +62,18 @@ def annote(root, train_data):
     print("got metadata", len(local_buffer))
     return local_buffer
 
-def load_dataset(root):
+def load_dataset(root, transforms=None, split=0):
     train_data = data_seeker(root)
     annotations = annote(root,train_data)
 
-    train = list_dataset(root, annotations)
-    return(train)
+    if split:
+        train_annotations = annotations[0:int(len(annotations)*(split/100))]
+        valid_annotations = annotations[int(len(annotations)*(split/100)):]
 
-def lazy_load_dataset(wav_file, batch_size):
+    train, validate = list_dataset(root, train_annotations), list_dataset(root, valid_annotations)
+    return train, validate
+
+def lazy_load_dataset(wav_file):
     waves = []
     for i in range(len(wav_file)):
         if wav_file[i] not in global_buffer:
