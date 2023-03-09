@@ -79,3 +79,14 @@ parser.add_argument('--milestones', default=[100,150,200], metavar='N', nargs='*
 
 def main():
 
+    data = "E:/data/LJSpeech-1.1"
+    split_value = 70
+    batch_size = 16
+    train_set = load_dataset(data)
+
+    train_loader = DataLoader(train_set, batch_size=8, shuffle=True)
+
+    for i, (some,another) in enumerate(train_loader):
+        wave = lazy_load_dataset(some, batch_size)
+        break
+main()

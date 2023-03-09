@@ -16,11 +16,35 @@ from torch.utils.data import DataLoader, Dataset
 import pickle
 
 CHARSET = " abcdefghijklmnopqrstuvwxyz,.'"
+global_buffer = {}
 
 def data_seeker(root):
     input_img = (glob.glob(os.path.join(root,"wavs/*")))
     print(np.array(input_img).shape)
     return input_img
+
+
+def batched_data(data, batch_size, shuffle=True):
+    batched_buffer = []
+    for i in range(0,len(data),batch_size):
+        batched_buffer.append(data[i:batch_size])
+
+    return batched_buffer
+
+class list_dataset(Dataset):
+    def __init__(self, root, buffer):
+        self.root = root
+        self.buffer = buffer
+
+    def __getitem__(self, index):
+        wavs = self.buffer[index][0]
+        speech = self.buffer[index][1]
+
+        return wavs,speech
+
+    def __len__(self):
+        return len(self.buffer)
+
 
 def annote(root, train_data):
     local_buffer = []
@@ -29,31 +53,36 @@ def annote(root, train_data):
         corpus = txtfile.read().split("\n")
         for row in corpus:
             row = row.split("|")
+            row[0] = row[0].split('"')[1] if row[0][0] == '"' else row[0]
             tokens = [CHARSET.index(c)+1 for c in row[1].lower() if c in CHARSET]
+            for i in range(250-len(tokens)):
+                tokens.append(0)
             if len(tokens) <= 250:
-                local_buffer.append((os.path.join(root, 'wavs', row[0]+".wav"), tokens))
+                local_buffer.append([os.path.join(root, 'wavs', row[0]+".wav"), tokens])
     print("got metadata", len(local_buffer))
     return local_buffer
 
-def load_dataset(root, transform=None, split=0):
+def load_dataset(root):
     train_data = data_seeker(root)
     annotations = annote(root,train_data)
 
-    if split:
-        train,validate = annotations[0:split], annotations[split:]
-        return train, validate
-    return annotations, []
+    train = list_dataset(root, annotations)
+    return(train)
+
+def lazy_load_dataset(wav_file, batch_size):
+    waves = []
+    for i in range(len(wav_file)):
+        if wav_file[i] not in global_buffer:
+            waveform, sample_rate = torchaudio.load(wav_file[i])
+            global_buffer[wav_file[i]] = waveform
+        waves.append(global_buffer[wav_file[i]])
+    return waves
+
+if __name__ == "__main__":
+
+    root = "E:/data/LJSpeech-1.1/"
 
 
-def lazy_load_dataset(wav_file):
-    waveform, sample_rate = torchaudio.load(wav_file)
-    global_buffer[i.split("\\")[1]] = waveform
-
-    print(global_buffer)
-
-root = "E:/data/LJSpeech-1.1/"
-
-
-load_dataset(root)
+    load_dataset(root)
 
 
