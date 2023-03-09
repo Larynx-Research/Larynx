@@ -49,7 +49,7 @@ parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
 parser.add_argument('--epoch-size', default=1000, type=int, metavar='N',
                     help='manual epoch size (will match dataset size if set to 0)')
-parser.add_argument('-b', '--batch-size', default=16, type=int,
+parser.add_argument('-b', '--batch_size', default=16, type=int,
                     metavar='N', help='mini-batch size')
 parser.add_argument('--lr', '--learning-rate', default=0.0001, type=float,
                     metavar='LR', help='initial learning rate')
@@ -93,9 +93,6 @@ def main():
     if not os.path.exists(save_path):
         os.makedirs(save_path)
 
-    split_value = 70
-    batch_size = 16
-
 ## --------------------- transforming the data (BUT HOW) --------------------- ##
 
     input_transform = transforms.Compose([
@@ -112,14 +109,14 @@ def main():
 ## --------------------- loading and concatinating the data --------------------- ##
 
     print(f"=> fetching image pairs from {args.data}")   
-    train_set, validation_set = load_dataset(args.data, transforms=None, split=80)
+    train_set, validation_set = load_dataset(args.data, transforms=None, arg.split_value=80)
 
     print(f"=> {len(validation_set) + len(train_set)} samples found, {len(train_set)} train samples and {len(validation_set)} test samples")
 
-    train_loader = DataLoader(train_set, batch_size=8, shuffle=True)
-    validate_loader = DataLoader(validation_set, batch_size=8, shuffle=True)
+    train_loader = DataLoader(train_set, args.batch_size=8, shuffle=True)
+    validate_loader = DataLoader(validation_set, args.batch_size=8, shuffle=True)
 
-## --------------------- MODEL from FlowNetCorr.py --------------------- ##
+## --------------------- WAVENET from model.py --------------------- ##
 
     model = wavenet()
 
@@ -151,7 +148,7 @@ def main():
     optimizer = torch.optim.Adam(param_groups, args.lr, betas=(args.momentum, args.beta)) if args.solver == 'adam' else torch.optim.SGD(param_groups, args.lr, momentum=args.momentum)
     
     if args.evaluate:
-        best_cross_entropy = validation(val_loader, model, 0, output_writers, loss_function)
+        best_cross_entropy = validation(validate_loader, model, 0, output_writers, loss_function)
         return
 
 ## --------------------- Scheduler and Loss Function --------------------- ##
@@ -165,23 +162,21 @@ def main():
     print("=> training go look tensorboard for more stuff")
     for epoch in (r := trange(args.start_epoch, args.epochs)):
 
-        avg_loss_MSE, train_loss_MSE, display = train(train_loader, model,
-                optimizer, epoch+main_epoch, train_writer, yaw_loss, pitch_loss)
+        avg_loss_CE, train_loss_CE, display = train(train_loader, model,
+                optimizer, epoch+main_epoch, loss_function)
         
         scheduler.step()
-        train_writer.add_scalar('train mean MSE', avg_loss_MSE, epoch)
 
 ## --------------------- Validation Step --------------------- ##
         
         with torch.no_grad():
-            MSE_loss_val, display_val = validation(val_loader, model, epoch, output_writers, yaw_loss, pitch_loss)
-        test_writer.add_scalar('validation mean MSE', MSE_loss_val, epoch)
+            CE_loss_val, display_val = validation(val_loader, model, epoch, loss_function)
 
         if best_MSE < 0:
-            best_MSE = MSE_loss_val
+            best_cross_entropy = CE_loss_val
 
-        is_best = MSE_loss_val < best_MSE
-        best_MSE = min(MSE_loss_val, best_MSE)
+        is_best = CE_loss_val < best_cross_entropy
+        best_CE = min(CE_loss_val, best_CE)
 
 ## --------------------- Saving on every epoch --------------------- ##
 
@@ -189,7 +184,7 @@ def main():
             'epoch': epoch + 1,
             'arch': args.arch,
             'state_dict': model.module.state_dict(),
-            'best_EPE': best_MSE,
+            'best_EPE': best_CE,
             'div_flow': args.div_flow
         }, is_best, save_path)
         
@@ -197,10 +192,10 @@ def main():
 
 ## --------------------- TRAIN function for the training loop --------------------- ##
 
-def train(train_loader, model, optimizer, epoch, train_writer, yaw_loss, pitch_loss):
+def train(train_loader, model, optimizer, epoch, loss_function):
     global n_iters, args
 
-    epoch_size = len(train_loade+main_epochr) if args.epoch_size == 0 else min(len(train_loader), args.epoch_size)
+    epoch_size = len(train_loader)+main_epoch if args.epoch_size == 0 else min(len(train_loader), args.epoch_size)
 
     losses = []
     model.train()
@@ -208,21 +203,17 @@ def train(train_loader, model, optimizer, epoch, train_writer, yaw_loss, pitch_l
 
 ## --------------------- Training --------------------- ##
 
-    for i, (input, yaw, pitch) in enumerate(train_loader):
+    for i, (wave, speech) in enumerate(train_loader):
         start_time = time.time()
-        yaw = yaw.to(device)
-        pitch = pitch.to(device)
-        inputs = torch.cat(input,1).to(device)
+        wave = lazy_load_dataset(wave)
+        wave = wave.to(device)
+        speech = speech.to(device)
 
-        pred_yaw, pred_pitch = model(inputs)
+        pred_speech = model(wave)
 
-        yaw_MSE = yaw_loss(pred_yaw, yaw)
+        loss = loss_function(pred_speech, speech)
         
-        pitch_MSE = pitch_loss(pred_pitch, pitch)
-        loss = (yaw_MSE + pitch_MSE)*.5
-
-        losses.append((float(yaw_MSE) + float(pitch_MSE)) *.5)
-        train_writer.add_scalar('train_loss', (float(yaw_MSE.item()+pitch_MSE.item())*.5))
+        losses.append((float(loss))
 
         optimizer.zero_grad()
         loss.backward()
@@ -235,32 +226,30 @@ def train(train_loader, model, optimizer, epoch, train_writer, yaw_loss, pitch_l
         
 ## --------------------- Stuff to display at output --------------------- ##
 
-        if i % args.print_freq == 0:
-            display = (' Epoch: [{0}][{1}/{2}] ; Time {3} ; Avg MSELoss {4} ; yaw_MSE {5} ; pitch_MSE {6}').format(epoch, 
-                    i, epoch_size, batch_time, sum(losses)/len(losses), yaw_MSE.item(), pitch_MSE.item())
-            print(display)
-        n_iters += 1
-        if i >= epoch_size:
-            break
+       # if i % args.print_freq == 0:
+       #     display = (' Epoch: [{0}][{1}/{2}] ; Time {3} ; Avg MSELoss {4} ; yaw_MSE {5} ; pitch_MSE {6}').format(epoch, 
+       #             i, epoch_size, batch_time, sum(losses)/len(losses), yaw_MSE.item(), pitch_MSE.item())
+       #     print(display)
+       # n_iters += 1
+       # if i >= epoch_size:
+       #     break
     
-    return sum(losses)/len(losses), loss.item() , display
+    return sum(losses)/len(losses), loss.item() , display=1
 
-def validation(val_loader, model, epoch, output_writers, yaw_loss, pitch_loss):
+def validation(val_loader, model, epoch, loss_function):
     global args
 
     model.eval()
     
     end = time.time()
-    for i, (input, yaw, pitch) in enumerate(val_loader):
-        yaw = yaw.to(device)
-        pitch = pitch.to(device)
-        input = torch.cat(input,1).to(device)
+    for i, (wave, speech) in enumerate(val_loader):
+        wave = lazy_load_dataset(wave)
+        wave = wave.to(device)
+        speech = speech.to(device)
 
-        pred_yaw, pred_pitch = model(input)
+        pred_speech = model(wave)
 
-        yaw_MSE = yaw_loss(pred_yaw, yaw)*.5
-        pitch_MSE = pitch_loss(pred_pitch, pitch)*.5
-        loss = yaw_MSE + pitch_MSE
+        loss = loss_function(pred_speech, speech)
 
         end = time.time()
 
@@ -272,12 +261,12 @@ def validation(val_loader, model, epoch, output_writers, yaw_loss, pitch_loss):
        #         output_writers[i].add_image('Inputs', (input[0,3:].cpu() + mean_values).clamp(0,1), 1)
        #     output_writers[i].add_image('FlowNet Outputs', flow2rgb(args.div_flow * output[0], max_value=10), epoch)
 
-        if i % args.print_freq == 0:
-            display_val = ('Test: [{0}/{1}] ; Loss {2}').format(i, len(val_loader), loss.item())
-            print(display_val)
-            print(f"=> Values: Actual yaw: {np.argmax(yaw)} ; Pred yaw: {np.argmax(pred_yaw)} --- Actual pitch : {np.argmax(pitch)} ; Pred pitch : {np.argmax(pred_pitch)}")
+       # if i % args.print_freq == 0:
+       #     display_val = ('Test: [{0}/{1}] ; Loss {2}').format(i, len(val_loader), loss.item())
+       #     print(display_val)
+       #     print(f"=> Values: Actual yaw: {np.argmax(yaw)} ; Pred yaw: {np.argmax(pred_yaw)} --- Actual pitch : {np.argmax(pitch)} ; Pred pitch : {np.argmax(pred_pitch)}")
 
-    return loss.item(), display_val
+    return loss.item(), display_val=1
         
 if __name__ == "__main__":
     torch.cuda.empty_cache()
