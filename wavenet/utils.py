@@ -78,6 +78,7 @@ def lazy_load_dataset(wav_file):
     if wav_file not in global_buffer:
         waveform, sample_rate = torchaudio.load(wav_file)
         global_buffer[wav_file] = waveform
+        print(sample_rate)
     return global_buffer[wav_file]
 
 if __name__ == "__main__":
@@ -85,6 +86,14 @@ if __name__ == "__main__":
     root = "E:/data/LJSpeech-1.1/"
 
 
-    load_dataset(root)
+    import wave
+    f_file = lazy_load_dataset("E:\data\LJSpeech-1.1\wavs\LJ001-0002.wav")
+
+    obj = wave.open("./some.wav","w")
+    f_file = np.array(f_file[0])
+    obj.setnchannels(2)
+    obj.setsampwidth(3)
+    obj.setframerate(22050)
+    obj.writeframes(f_file.data)
 
 
