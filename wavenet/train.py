@@ -208,19 +208,20 @@ def train(train_loader, model, optimizer, epoch, loss_function):
         start_time = time.time()
         wave = wave.to(device)
         speech = speech.to(device)
-
-        pred_wave = model(speech)
-
-        loss = loss_function(pred_wave, wave)
+    
         
-        losses.append(float(loss))
+        #pred_wave = model(speech)
 
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+        #loss = loss_function(pred_wave, wave)
+        
+        #losses.append(float(loss))
 
-        end = time.time()
-        batch_time = end - start_time
+        #optimizer.zero_grad()
+        #loss.backward()
+        #optimizer.step()
+
+        #end = time.time()
+        #batch_time = end - start_time
 #        print(yaw, pitch)
 #        print(pred_yaw, pred_pitch)
         
@@ -235,7 +236,7 @@ def train(train_loader, model, optimizer, epoch, loss_function):
        #     break
     display=1
     
-    return sum(losses)/len(losses), loss.item() , display
+    return -1 #sum(losses)/len(losses), loss.item() , display
 
 def validation(val_loader, model, epoch, loss_function):
     global args
