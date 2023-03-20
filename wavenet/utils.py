@@ -2,6 +2,8 @@ from __future__ import division
 import os, glob
 import shutil
 import cv2
+import wave
+import matplotlib.pyplot as plt
 
 import random
 import numpy as np
@@ -81,9 +83,29 @@ def lazy_load_dataset(wav_file):
         global_buffer[wav_file] = waveform
     return global_buffer[wav_file]
 
+def load_sample(root):
+    with wave.open(root+"/wavs/LJ001-0002.wav", "r") as audio_file:
+        # Get the number of channels, sample width, frame rate, and number of frames
+        num_channels = audio_file.getnchannels()
+        sample_width = audio_file.getsampwidth()
+        frame_rate = audio_file.getframerate()
+        num_frames = audio_file.getnframes()
+
+        frames = audio_file.readframes(num_frames)
+    print(list(frames))
+
+    print(num_channels, sample_width, frame_rate, num_frames)
+    with wave.open('audio.wav', 'w') as audio_file:
+        audio_file.setnchannels(num_channels)
+        audio_file.setsampwidth(sample_width)
+        audio_file.setframerate(frame_rate)
+        audio_file.writeframes(list(frames))
+
+    audio_file.close()
+
 
 if __name__ == "__main__":
 
     root = "E:/data/LJSpeech-1.1/"
-    max_len(root)
+    load_sample(root)
 
