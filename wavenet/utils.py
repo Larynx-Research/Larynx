@@ -84,7 +84,7 @@ def lazy_load_dataset(wav_file):
     return global_buffer[wav_file]
 
 def load_sample(root):
-    with wave.open(root+"/wavs/LJ001-0002.wav", "r") as audio_file:
+    with wave.open(root+"/wavs/LJ001-0002.wav", "rb") as audio_file:
         # Get the number of channels, sample width, frame rate, and number of frames
         num_channels = audio_file.getnchannels()
         sample_width = audio_file.getsampwidth()
@@ -95,7 +95,7 @@ def load_sample(root):
     print(list(frames))
 
     print(num_channels, sample_width, frame_rate, num_frames)
-    with wave.open('audio.wav', 'w') as audio_file:
+    with wave.open('audio.wav', 'wb') as audio_file:
         audio_file.setnchannels(num_channels)
         audio_file.setsampwidth(sample_width)
         audio_file.setframerate(frame_rate)
