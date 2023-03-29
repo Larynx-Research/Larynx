@@ -204,6 +204,7 @@ def train(train_loader, model, optimizer, epoch, loss_function):
 
 ## --------------------- Training --------------------- ##
 
+# wave is the waveform and speech is the text and you have to pad waveform ! search ways to do
     for i, (wave, speech) in enumerate(train_loader):
         start_time = time.time()
         wave = wave.to(device)
