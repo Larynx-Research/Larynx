@@ -209,7 +209,6 @@ def train(train_loader, model, optimizer, epoch, loss_function):
         wave = wave.to(device)
         speech = speech.to(device)
     
-        
         #pred_wave = model(speech)
 
         #loss = loss_function(pred_wave, wave)
