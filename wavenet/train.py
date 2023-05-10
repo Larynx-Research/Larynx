@@ -26,7 +26,7 @@ def model_callable():
     return kwargs
 
 
-parser = argparse.ArgumentParser(description='PyTorch FlowNet Training on several datasets',
+parser = argparse.ArgumentParser(description='PyTorch WAVENET Training on LIBRE SPEECH DATASET',
                                  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
 parser.add_argument('--data', default="E:/data/LJSpeech-1.1", type=str,
@@ -37,11 +37,11 @@ group = parser.add_mutually_exclusive_group()
 group.add_argument('--split_value', default=0.8, type=float,
                    help='test-val split proportion between 0 (only test) and 1 (only train), '
                         'will be overwritten if a split file is set')
-parser.add_argument('--arch', '-a', metavar='ARCH', default='flownetc',
+parser.add_argument('--arch', '-a', metavar='ARCH', default='wavenet',
                     choices=callable,)
 parser.add_argument('--solver', default='adam',choices=['adam','sgd'],
                     help='solver algorithms')
-parser.add_argument('-j', '--workers', default=2, type=int, metavar='N',
+parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
                     help='number of data loading workers')
 parser.add_argument('--epochs', default=300, type=int, metavar='N',
                     help='number of total epochs to run')
@@ -49,7 +49,7 @@ parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
 parser.add_argument('--epoch-size', default=1000, type=int, metavar='N',
                     help='manual epoch size (will match dataset size if set to 0)')
-parser.add_argument('-b', '--batch_size', default=16, type=int,
+parser.add_argument('-b', '--batch_size', default=32, type=int,
                     metavar='N', help='mini-batch size')
 parser.add_argument('--lr', '--learning-rate', default=0.0001, type=float,
                     metavar='LR', help='initial learning rate')
@@ -61,9 +61,6 @@ parser.add_argument('--weight-decay', '--wd', default=4e-4, type=float,
                     metavar='W', help='weight decay')
 parser.add_argument('--bias-decay', default=0, type=float,
                     metavar='B', help='bias decay')
-parser.add_argument('--multiscale-weights', '-w', default=[0.005,0.01,0.02,0.08,0.32], type=float, nargs=5,
-                    help='training weight for each scale, from highest resolution (flow2) to lowest (flow6)',
-                    metavar=('W2', 'W3', 'W4', 'W5', 'W6'))
 parser.add_argument('--print-freq', '-p', default=10, type=int,
                     metavar='N', help='print frequency')
 parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true',
@@ -78,9 +75,11 @@ parser.add_argument('--milestones', default=[100,150,200], metavar='N', nargs='*
 
 ## ----------------------- global variables ----------------------- ##
 
-best_cross_entropy = -1
+## use log liklihood max
+NLLLOSS = -1
 n_iters = 0
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+#device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cpu")
 
 def main():
     global args, best_cross_entropy
@@ -119,7 +118,11 @@ def main():
 
 ## --------------------- WAVENET from model.py --------------------- ##
 
-    model = load_wavenet()
+    in_channel = 1
+    out_channel = 1
+    kernel_size = 1
+    stack_size = 16
+    model = wavenet(in_channel, out_channel, kernel_size, stack_size).to(device)
 
     if args.pretrained is not None:
         with open(args.pretrained, 'rb') as pickle_file:
@@ -156,40 +159,40 @@ def main():
 
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=args.milestones, gamma=.5)
 
-    loss_function = nn.CrossEntropyLoss()
+    loss_function = torch.nn.NLLLoss()
 
-    ## --------------------- Training Loop --------------------- ##
     
+## --------------------- Validation Step --------------------- ##
     print("=> training go look tensorboard for more stuff")
     for epoch in (r := trange(args.start_epoch, args.epochs)):
 
-        avg_loss_CE, train_loss_CE, display = train(train_loader, model,
+        with torch.no_grad():
+            NLL_loss_val, display_val = validation(validate_loader, model, epoch+main_epoch, loss_function)
+
+## --------------------- Training Loop --------------------- ##
+
+        train_loss_NLL, display = train(train_loader, model,
                 optimizer, epoch+main_epoch, loss_function)
         
         scheduler.step()
-
-## --------------------- Validation Step --------------------- ##
         
-        with torch.no_grad():
-            CE_loss_val, display_val = validation(val_loader, model, epoch, loss_function)
+        if best_NLL < 0:
+            best_neg_loss = NLL_loss_val
 
-        if best_MSE < 0:
-            best_cross_entropy = CE_loss_val
-
-        is_best = CE_loss_val < best_cross_entropy
-        best_CE = min(CE_loss_val, best_CE)
+        is_best = NLL_loss_val < best_neg_loss
+        best_CE = min(NLL_loss_val, best_NLL)
 
 ## --------------------- Saving on every epoch --------------------- ##
 
         save_checkpoint({
-            'epoch': epoch + 1,
+            'epoch': epoch,
             'arch': args.arch,
             'state_dict': model.module.state_dict(),
-            'best_EPE': best_CE,
+            'best_EPE': best_NLL,
             'div_flow': args.div_flow
         }, is_best, save_path)
         
-        r.set_description(f"train_stuff: {display}, epoch: {epoch+1}, val_Stuff: {display_val}")
+        r.set_description(f"Epoch: {epoch} ; Train_stuff: {display},, val_Stuff: {display_val}")
 
 ## --------------------- TRAIN function for the training loop --------------------- ##
 
@@ -209,24 +212,21 @@ def train(train_loader, model, optimizer, epoch, loss_function):
         wave = wave.to(device)
         speech = speech.to(device)
     
-        #pred_wave = model(speech)
+        pred_wave = model(speech)
 
-        #loss = loss_function(pred_wave, wave)
+        loss = loss_function(pred_wave, wave)
         
-        #losses.append(float(loss))
+        losses.append(float(loss))
 
-        #optimizer.zero_grad()
-        #loss.backward()
-        #optimizer.step()
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
 
-        #end = time.time()
-        #batch_time = end - start_time
-#        print(yaw, pitch)
-#        print(pred_yaw, pred_pitch)
+    end = time.time()
+    batch_time = end - start_time
         
 ## --------------------- Stuff to display at output --------------------- ##
 
-       # if i % args.print_freq == 0:
        #     display = (' Epoch: [{0}][{1}/{2}] ; Time {3} ; Avg MSELoss {4} ; yaw_MSE {5} ; pitch_MSE {6}').format(epoch, 
        #             i, epoch_size, batch_time, sum(losses)/len(losses), yaw_MSE.item(), pitch_MSE.item())
        #     print(display)
@@ -235,24 +235,24 @@ def train(train_loader, model, optimizer, epoch, loss_function):
        #     break
     display=1
     
-    return -1 #sum(losses)/len(losses), loss.item() , display
+    return sum(losses)/len(losses), display
 
 def validation(val_loader, model, epoch, loss_function):
     global args
 
     model.eval()
     
-    end = time.time()
+    start = time.time()
     for i, (wave, speech) in enumerate(val_loader):
-        wave = lazy_load_dataset(wave)
-        wave = torch.tensor(wave).to(device)
+        wave = wave.to(device)
         speech = speech.to(device)
 
         pred_wave = model(speech)
 
         loss = loss_function(pred_wave, wave)
 
-        end = time.time()
+    end = time.time()
+    batch_time = end-start
 
        # if i < len(output_writers):
        #     if epoch == 0:

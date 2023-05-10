@@ -41,10 +41,10 @@ class list_dataset(Dataset):
 
     def __getitem__(self, index):
         wavs = self.buffer[index][0]
-        speech = self.buffer[index][1]
+        text_speech = self.buffer[index][1]
 
         waveform = lazy_load_dataset(wavs)
-        return waveform ,speech
+        return waveform ,np.array(text_speech, dtype="float32").reshape(1,-1)
 
     def __len__(self):
         return len(self.buffer)
@@ -79,7 +79,15 @@ def load_dataset(root, transforms=None, split=0):
 
 def lazy_load_dataset(wav_file):
     if wav_file not in global_buffer:
-        waveform, sample_rate = torchaudio.load(wav_file)
+        with wave.open(wav_file, "rb") as audio_file:
+            num_channels = audio_file.getnchannels()
+            sample_width = audio_file.getsampwidth()
+            sample_rate = audio_file.getframerate()
+            num_frames = audio_file.getnframes()
+            sample_data = audio_file.readframes(num_frames)
+
+        sample_array = np.array(struct.unpack("<" + "h" * (num_frames * num_channels), sample_data)).reshape(1,-1)
+        waveform = np.concatenate((sample_array, np.zeros((1, 500000 - sample_array.shape[1]))), axis=1)
 
         global_buffer[wav_file] = waveform
     return global_buffer[wav_file]
@@ -98,7 +106,7 @@ def load_sample(root):
 
 
         sample_array = np.array(struct.unpack("<" + "h" * (num_frames * num_channels), sample_data))
-        print(sample_array.reshape(1,-1))
+        print(sample_array.shape)
         sample_data = struct.pack("<" + ("h" * len(sample_array)), *sample_array)
         
         #sample_array = sample_array.reshape(-1, num_channels)

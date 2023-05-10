@@ -78,6 +78,7 @@ class dense_net(nn.Module):
             x = relu(x)
             x = self.conv(x)
             softmax = nn.Softmax(dim=1)
+        print(softmax(x).shape)
         return softmax(x)
 
 
@@ -107,12 +108,12 @@ class wavenet(nn.Module):
         print(x)
         return x
 
-def load_wavenet(data=None):
+def load_wavenet(device=None, data=None):
     in_channel = 1
     out_channel = 1
     kernel_size = 5
     stack_size = 16
-    model = wavenet(in_channel, out_channel, kernel_size, stack_size)
+    model = wavenet(in_channel, out_channel, kernel_size, stack_size).to(device)
     if data is not None:
         model.load_state_dict(data['state_dict'])
     return model
