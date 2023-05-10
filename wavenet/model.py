@@ -125,6 +125,7 @@ if __name__ == "__main__":
     x = torch.rand(3,100).reshape(1,3,-1,)
     in_channel = 3
     out_channel = 3
+
     kernel_size = 5
     stack_size=3
     skip = 1
