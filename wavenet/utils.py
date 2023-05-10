@@ -2,7 +2,6 @@ from __future__ import division
 import os, glob
 import shutil
 import cv2
-import wave
 import matplotlib.pyplot as plt
 
 import random
@@ -16,6 +15,8 @@ import torch
 import torchaudio
 from torch.utils.data import DataLoader, Dataset
 import pickle
+import wave
+import struct
 
 CHARSET = " abcdefghijklmnopqrstuvwxyz,.'"
 global_buffer = {}
@@ -84,25 +85,36 @@ def lazy_load_dataset(wav_file):
     return global_buffer[wav_file]
 
 def load_sample(root):
-    with wave.open(root+"/wavs/LJ001-0002.wav", "rb") as audio_file:
-        # Get the number of channels, sample width, frame rate, and number of frames
-        num_channels = audio_file.getnchannels()
-        sample_width = audio_file.getsampwidth()
-        frame_rate = audio_file.getframerate()
-        num_frames = audio_file.getnframes()
+    root = root + "/wavs"
+    for i in glob.glob(root+"/*")[:10]:
+        with wave.open(i, "rb") as audio_file:
+            # Get the number of channels, sample width, frame rate, and number of frames
+            num_channels = audio_file.getnchannels()
+            sample_width = audio_file.getsampwidth()
+            sample_rate = audio_file.getframerate()
+            num_frames = audio_file.getnframes()
 
-        frames = audio_file.readframes(num_frames)
-    print(list(frames))
+            sample_data = audio_file.readframes(num_frames)
 
-    print(num_channels, sample_width, frame_rate, num_frames)
-    with wave.open('audio.wav', 'wb') as audio_file:
-        audio_file.setnchannels(num_channels)
-        audio_file.setsampwidth(sample_width)
-        audio_file.setframerate(frame_rate)
-        audio_file.writeframes(list(frames))
 
-    audio_file.close()
+        sample_array = np.array(struct.unpack("<" + "h" * (num_frames * num_channels), sample_data))
+        print(sample_array.reshape(1,-1))
+        sample_data = struct.pack("<" + ("h" * len(sample_array)), *sample_array)
+        
+        #sample_array = sample_array.reshape(-1, num_channels)
 
+        #time_values = np.arange(num_frames) / sample_rate
+
+        #for i in range(num_channels):
+        #    plt.plot(time_values, sample_array[:, i])
+
+        #plt.xlabel("Time (seconds)")
+        #plt.ylabel("Amplitude")
+        #plt.show()
+
+    with wave.open("out.wav","wb") as out:
+        out.setparams((1, sample_width, sample_rate, len(sample_data), "NONE", "not compressed"))
+        out.writeframes(sample_data)
 
 if __name__ == "__main__":
 
