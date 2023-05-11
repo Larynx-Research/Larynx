@@ -6,6 +6,8 @@ https://arxiv.org/pdf/1511.07122.pdf --> Diluted convolutions explained !!
 --- 
 Use LJ SPEECH to train this shit !
 
+use an actuall tokenizer to do this kinda things ! 
+just try with the letter tokenizer at the start but evenntually move on with an actuall tokenizer
 
 ---
 try this after that 
