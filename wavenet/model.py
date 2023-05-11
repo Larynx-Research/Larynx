@@ -120,13 +120,13 @@ def load_wavenet(device=None, data=None):
 
 ## A very simple Wavenet, might not be according to the paper 
 if __name__ == "__main__":
-    x = torch.rand(1,100)
+    x = torch.rand(256,1)
     print(x.shape)
-    in_channel = 1
-    out_channel = 1
+    in_channel = 256
+    out_channel = 512
 
-    kernel_size = 5
+    kernel_size = 1
     stack_size=3
     skip = 1
     a = wavenet(in_channel,out_channel, kernel_size, stack_size)
-    print(a(x))
+    print(a(x).shape)
